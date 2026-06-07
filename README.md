@@ -200,23 +200,6 @@ This project is ready to deploy on Vercel.
 3. Add environment variables in Vercel Project Settings if you want server-side provider keys.
 4. Deploy.
 
-## Suggested GitHub Repository Names
-
-Recommended:
-
-```text
-ai-job-application-tracker
-```
-
-Other good options:
-
-```text
-job-portal-ai-tracker
-career-pipeline-ai
-ai-career-application-board
-smart-job-tracker
-```
-
 ## Scripts
 
 ```bash
@@ -235,4 +218,3 @@ npm run lint     # Run ESLint
 
 ## License
 
-Add a license before publishing if this repository will be public. MIT is a common choice for portfolio projects.
