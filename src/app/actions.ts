@@ -1,12 +1,20 @@
 'use server';
 
 import * as cheerio from 'cheerio';
-import { AIProvider } from '../types';
+import { AIProvider, JobSearchCriteria, JobSearchResult } from '../types';
 
 interface OpenRouterResponse {
   choices: Array<{
     message: {
       content: string;
+      annotations?: Array<{
+        type?: string;
+        url_citation?: {
+          url?: string;
+          title?: string;
+          content?: string;
+        };
+      }>;
     };
   }>;
 }
@@ -76,6 +84,219 @@ Candidate Skills: ${profile.skills}
 Candidate Background/Summary: ${profile.experienceSummary}${resumeContext}`;
 }
 
+function parseJsonContent(content: string) {
+  try {
+    return JSON.parse(content);
+  } catch {
+    const match = content.match(/```(?:json)?\s*([\s\S]*?)```/) || content.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (!match) {
+      throw new Error('AI response did not contain valid JSON.');
+    }
+    return JSON.parse(match[1]);
+  }
+}
+
+function stripHtml(input?: string) {
+  if (!input) return '';
+  return cheerio.load(input).text().replace(/\s+/g, ' ').trim();
+}
+
+function scorePublicJob(job: JobSearchResult, criteria: JobSearchCriteria, profile: { skills: string; targetTitle: string }) {
+  const haystack = `${job.title} ${job.company} ${job.description} ${job.location}`.toLowerCase();
+  const terms = `${criteria.targetRole} ${criteria.keywords || profile.skills}`
+    .split(/[,| ]+/)
+    .map((term) => term.trim().toLowerCase())
+    .filter((term) => term.length > 2);
+  const hits = terms.filter((term) => haystack.includes(term)).length;
+  return Math.max(45, Math.min(92, 55 + hits * 4));
+}
+
+async function fetchPublicJobBoardResults(
+  criteria: JobSearchCriteria,
+  profile: { skills: string; targetTitle: string }
+): Promise<JobSearchResult[]> {
+  const query = encodeURIComponent(criteria.targetRole || profile.targetTitle);
+  const excluded = criteria.excludedCompanies
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+
+  const [remotiveResult, remoteOkResult] = await Promise.allSettled([
+    fetch(`https://remotive.com/api/remote-jobs?search=${query}`, {
+      headers: { 'User-Agent': 'Job Portal Tracker' },
+      cache: 'no-store',
+    }),
+    fetch('https://remoteok.com/api', {
+      headers: { 'User-Agent': 'Job Portal Tracker' },
+      cache: 'no-store',
+    }),
+  ]);
+
+  const jobs: JobSearchResult[] = [];
+
+  if (remotiveResult.status === 'fulfilled' && remotiveResult.value.ok) {
+    const payload = await remotiveResult.value.json();
+    if (Array.isArray(payload?.jobs)) {
+      payload.jobs.slice(0, 20).forEach((job: any, index: number) => {
+        jobs.push({
+          id: `remotive-${job.id || index}`,
+          company: job.company_name || 'Unknown Company',
+          title: job.title || 'Untitled Role',
+          location: job.candidate_required_location || 'Remote',
+          salary: job.salary || '',
+          url: job.url || '',
+          description: stripHtml(job.description).slice(0, 900),
+          matchScore: 0,
+          matchReason: 'Matched from Remotive public remote jobs.',
+          gaps: '',
+          suggestedKeywords: Array.isArray(job.tags) ? job.tags.slice(0, 8).join(', ') : '',
+          source: 'Remotive',
+        });
+      });
+    }
+  }
+
+  if (remoteOkResult.status === 'fulfilled' && remoteOkResult.value.ok) {
+    const payload = await remoteOkResult.value.json();
+    if (Array.isArray(payload)) {
+      payload
+        .filter((job: any) => job?.position && job?.company)
+        .slice(0, 35)
+        .forEach((job: any, index: number) => {
+          jobs.push({
+            id: `remoteok-${job.id || job.slug || index}`,
+            company: job.company || 'Unknown Company',
+            title: job.position || 'Untitled Role',
+            location: job.location || 'Remote',
+            salary: job.salary_min || job.salary_max ? `$${job.salary_min || '?'} - $${job.salary_max || '?'}` : '',
+            url: job.url || (job.slug ? `https://remoteok.com/remote-jobs/${job.slug}` : ''),
+            description: stripHtml(job.description).slice(0, 900),
+            matchScore: 0,
+            matchReason: 'Matched from Remote OK public jobs.',
+            gaps: '',
+            suggestedKeywords: Array.isArray(job.tags) ? job.tags.slice(0, 8).join(', ') : '',
+            source: 'Remote OK',
+          });
+        });
+    }
+  }
+
+  const deduped = jobs.filter((job, index, array) => {
+    const key = `${job.company.toLowerCase()}-${job.title.toLowerCase()}-${job.url}`;
+    return array.findIndex((candidate) => `${candidate.company.toLowerCase()}-${candidate.title.toLowerCase()}-${candidate.url}` === key) === index;
+  });
+
+  return deduped
+    .filter((job) => !excluded.some((item) => job.company.toLowerCase().includes(item) || job.url?.toLowerCase().includes(item)))
+    .map((job) => ({
+      ...job,
+      matchScore: scorePublicJob(job, criteria, profile),
+    }))
+    .sort((a, b) => b.matchScore - a.matchScore)
+    .slice(0, 12);
+}
+
+function normalizeSearchResults(results: unknown, fallbackResults: JobSearchResult[] = []): JobSearchResult[] {
+  const fallbackByUrl = new Map(fallbackResults.map((item) => [item.url || `${item.company}-${item.title}`, item]));
+
+  return Array.isArray(results)
+    ? results
+        .map((item: Partial<JobSearchResult>, index: number) => {
+          const fallback = fallbackByUrl.get(item.url || `${item.company}-${item.title}`) || fallbackResults[index];
+          return {
+            id: item.id || fallback?.id || `${Date.now()}-${index}`,
+            company: item.company || fallback?.company || 'Unknown Company',
+            title: item.title || fallback?.title || 'Untitled Role',
+            location: item.location || fallback?.location || '',
+            salary: item.salary || fallback?.salary || '',
+            url: item.url || fallback?.url || '',
+            description: item.description || fallback?.description || '',
+            matchScore: Math.max(0, Math.min(100, Number(item.matchScore ?? fallback?.matchScore) || 0)),
+            matchReason: item.matchReason || fallback?.matchReason || '',
+            gaps: item.gaps || fallback?.gaps || '',
+            suggestedKeywords: item.suggestedKeywords || fallback?.suggestedKeywords || '',
+            source: item.source || fallback?.source || '',
+          };
+        })
+        .filter((item: JobSearchResult) => item.title && item.company)
+        .slice(0, 8)
+    : [];
+}
+
+async function searchJobsWithOpenRouterWebSearch(
+  criteria: JobSearchCriteria,
+  profile: { name: string; targetTitle: string; skills: string; experienceSummary: string; resumeText?: string },
+  apiKey: string
+) {
+  try {
+    const candidateContext = buildCandidateContext(profile);
+    const systemPrompt = `You are an expert job-search research assistant with live web search access.
+Find current, real job postings that match the candidate profile and search preferences.
+Return only JSON with "questions" and "results" arrays. Results must include company, title, location, salary, url, description, matchScore, matchReason, gaps, suggestedKeywords, and source.
+Do not invent URLs.`;
+    const userPrompt = `Candidate:
+${candidateContext}
+
+Search preferences:
+- Target role: ${criteria.targetRole || profile.targetTitle}
+- Location: ${criteria.location || 'Any relevant location'}
+- Work mode: ${criteria.workMode}
+- Salary target: ${criteria.salary || 'Not specified'}
+- Required/preferred keywords: ${criteria.keywords || profile.skills}
+- Excluded companies/domains: ${criteria.excludedCompanies || 'None'}
+- Additional notes or answers: ${criteria.notes || 'None'}
+- Ask clarifying questions first: ${criteria.askQuestionsFirst ? 'Yes' : 'No'}`;
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: getHeaders('openrouter', apiKey),
+      body: JSON.stringify({
+        model: 'perplexity/sonar-pro',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        tools: [
+          {
+            type: 'openrouter:web_search',
+            parameters: {
+              engine: 'exa',
+              allowed_domains: ['greenhouse.io', 'lever.co', 'ashbyhq.com', 'workdayjobs.com', 'linkedin.com', 'indeed.com', 'wellfound.com'],
+              max_results: 6,
+              max_total_results: 10,
+              search_context_size: 'low',
+            },
+          },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    const data = (await response.json()) as OpenRouterResponse;
+    const content = data.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('OpenRouter returned an empty search response.');
+    }
+
+    const parsed = parseJsonContent(content);
+    return {
+      questions: Array.isArray(parsed?.questions) ? parsed.questions.filter(Boolean).slice(0, 4) : [],
+      results: normalizeSearchResults(parsed?.results),
+    };
+  } catch (error) {
+    console.error('OpenRouter Web Search Fallback Error:', error);
+    return {
+      questions: [],
+      results: [],
+    };
+  }
+}
+
 export async function getProviderModelsAction(provider?: AIProvider, clientApiKey?: string) {
   const selectedProvider = getProvider(provider);
 
@@ -118,6 +339,150 @@ export async function getProviderModelsAction(provider?: AIProvider, clientApiKe
       success: false,
       error: error.message || 'Unable to load model catalog.',
       models: [],
+    };
+  }
+}
+
+export async function searchJobsAction(
+  criteria: JobSearchCriteria,
+  profile: { name: string; targetTitle: string; skills: string; experienceSummary: string; resumeText?: string },
+  clientApiKey?: string,
+  model?: string,
+  provider?: AIProvider,
+  openRouterApiKey?: string
+) {
+  try {
+    const selectedProvider = getProvider(provider);
+    const candidateContext = buildCandidateContext(profile);
+
+    if (!criteria.targetRole.trim() && criteria.askQuestionsFirst) {
+      return {
+        success: true,
+        questions: [
+          'What exact role title should I search for first?',
+          'Which locations or time zones are acceptable?',
+          'Are there companies, industries, or contract types you want to avoid?',
+        ],
+        results: [],
+      };
+    }
+
+    const publicResults = await fetchPublicJobBoardResults(criteria, profile);
+
+    const rankSystemPrompt = `You are an expert job-search ranking assistant.
+You receive live job postings collected from public job-board APIs, plus candidate profile context.
+Rank and tailor the postings for the candidate.
+Return only JSON with this shape:
+{
+  "questions": [],
+  "results": [
+    {
+      "company": "Company",
+      "title": "Role title",
+      "location": "Location or Remote",
+      "salary": "Salary if available, otherwise empty",
+      "url": "Direct posting URL",
+      "description": "Concise markdown summary of responsibilities, requirements, and stack",
+      "matchScore": 85,
+      "matchReason": "Why this matches the candidate",
+      "gaps": "Any missing skills or concerns",
+      "suggestedKeywords": "Resume keywords to emphasize",
+      "source": "Domain or job board"
+    }
+  ]
+}
+If askQuestionsFirst is true and critical information is missing, return 2-4 questions and an empty results array.
+Return up to 8 jobs when enough information exists. Use matchScore from 0 to 100. Keep real URLs exactly as provided.`;
+
+    const rankUserPrompt = `Candidate:
+${candidateContext}
+
+Search preferences:
+- Target role: ${criteria.targetRole || profile.targetTitle}
+- Location: ${criteria.location || 'Any relevant location'}
+- Work mode: ${criteria.workMode}
+- Salary target: ${criteria.salary || 'Not specified'}
+- Required/preferred keywords: ${criteria.keywords || profile.skills}
+- Excluded companies/domains: ${criteria.excludedCompanies || 'None'}
+- Additional notes or answers: ${criteria.notes || 'None'}
+- Ask clarifying questions first: ${criteria.askQuestionsFirst ? 'Yes' : 'No'}
+
+Live public job candidates:
+${JSON.stringify(publicResults.slice(0, 12), null, 2)}`;
+
+    if (publicResults.length > 0) {
+      try {
+        const apiKey = getApiKey(selectedProvider, clientApiKey);
+        const response = await fetch(getCompletionUrl(selectedProvider), {
+          method: 'POST',
+          headers: getHeaders(selectedProvider, apiKey),
+          body: JSON.stringify({
+            model: getModel(selectedProvider, model),
+            messages: [
+              { role: 'system', content: rankSystemPrompt },
+              { role: 'user', content: rankUserPrompt },
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0.2,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const data = (await response.json()) as OpenRouterResponse;
+        const content = data.choices[0]?.message?.content;
+        if (!content) {
+          throw new Error('AI provider returned an empty ranking response.');
+        }
+
+        const parsed = parseJsonContent(content);
+        const results = normalizeSearchResults(parsed?.results, publicResults);
+
+        return {
+          success: true,
+          questions: Array.isArray(parsed?.questions) ? parsed.questions.filter(Boolean).slice(0, 4) : [],
+          results: results.length > 0 ? results : publicResults.slice(0, 8),
+          source: selectedProvider,
+        };
+      } catch (rankingError: any) {
+        console.error('Search Ranking Fallback:', rankingError);
+        return {
+          success: true,
+          warning: `Found jobs from public boards, but AI ranking failed: ${rankingError.message || 'Unknown provider error'}`,
+          questions: [],
+          results: publicResults.slice(0, 8),
+          source: 'public-job-boards',
+        };
+      }
+    }
+
+    if (openRouterApiKey) {
+      const webSearchResult = await searchJobsWithOpenRouterWebSearch(criteria, profile, openRouterApiKey);
+      if (webSearchResult.results.length > 0 || webSearchResult.questions.length > 0) {
+        return {
+          success: true,
+          questions: webSearchResult.questions,
+          results: webSearchResult.results,
+          source: 'openrouter-web-search',
+        };
+      }
+    }
+
+    return {
+      success: false,
+      error: 'No jobs found from public boards. Try a broader role title or connect OpenRouter for web search fallback.',
+      questions: [],
+      results: [],
+    };
+  } catch (error: any) {
+    console.error('Search Jobs Action Error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unable to search live jobs.',
+      questions: [],
+      results: [],
     };
   }
 }

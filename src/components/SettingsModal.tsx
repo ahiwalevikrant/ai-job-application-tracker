@@ -60,8 +60,8 @@ const DEFAULT_MODEL: Record<AIProvider, string> = {
 
 export default function SettingsModal({ isOpen, onClose, config, onSave }: SettingsModalProps) {
   const [provider, setProvider] = useState<AIProvider>(config.provider || 'openrouter');
-  const [apiKey, setApiKey] = useState(config.apiKey || '');
-  const [model, setModel] = useState(config.model || DEFAULT_MODEL.openrouter);
+  const [apiKey, setApiKey] = useState(config.apiKeys?.[config.provider] || config.apiKey || '');
+  const [model, setModel] = useState(config.models?.[config.provider] || config.model || DEFAULT_MODEL.openrouter);
   const [models, setModels] = useState(FALLBACK_MODELS[provider]);
   const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'loaded' | 'fallback'>('idle');
   const [modelsMessage, setModelsMessage] = useState('');
@@ -69,14 +69,14 @@ export default function SettingsModal({ isOpen, onClose, config, onSave }: Setti
   const [isSaved, setIsSaved] = useState(false);
 
   const hasEnvOpenRouterKey = process.env.NEXT_PUBLIC_HAS_ENV_KEY === 'true';
-  const isConnected = config.connected !== false && (apiKey.trim() !== '' || (provider === 'openrouter' && hasEnvOpenRouterKey));
+  const isConnected = config.connectedProviders?.[provider] !== false && (apiKey.trim() !== '' || (provider === 'openrouter' && hasEnvOpenRouterKey));
 
   useEffect(() => {
     if (!isOpen) return;
     const nextProvider = config.provider || 'openrouter';
     setProvider(nextProvider);
-    setApiKey(config.apiKey || '');
-    setModel(config.model || DEFAULT_MODEL[nextProvider]);
+    setApiKey(config.apiKeys?.[nextProvider] || config.apiKey || '');
+    setModel(config.models?.[nextProvider] || config.model || DEFAULT_MODEL[nextProvider]);
     setModels(FALLBACK_MODELS[nextProvider]);
     setModelsStatus('idle');
     setModelsMessage('');
@@ -87,7 +87,8 @@ export default function SettingsModal({ isOpen, onClose, config, onSave }: Setti
     setModels(FALLBACK_MODELS[provider]);
     setModelsStatus('idle');
     setModelsMessage('');
-    setModel((currentModel) => currentModel || DEFAULT_MODEL[provider]);
+    setApiKey(config.apiKeys?.[provider] || '');
+    setModel(config.models?.[provider] || DEFAULT_MODEL[provider]);
   }, [provider, isOpen]);
 
   useEffect(() => {
@@ -132,11 +133,27 @@ export default function SettingsModal({ isOpen, onClose, config, onSave }: Setti
   }
 
   const saveConfig = (nextConnected = true, nextApiKey = apiKey) => {
+    const nextApiKeys = {
+      ...(config.apiKeys || {}),
+      [provider]: nextApiKey.trim(),
+    };
+    const nextModels = {
+      ...(config.models || {}),
+      [provider]: model.trim() || DEFAULT_MODEL[provider],
+    };
+    const nextConnectedProviders = {
+      ...(config.connectedProviders || {}),
+      [provider]: nextConnected,
+    };
+
     onSave({
       provider,
-      apiKey: nextApiKey.trim(),
-      model: model.trim() || DEFAULT_MODEL[provider],
+      apiKey: nextApiKeys[provider] || '',
+      apiKeys: nextApiKeys,
+      model: nextModels[provider] || DEFAULT_MODEL[provider],
+      models: nextModels,
       connected: nextConnected,
+      connectedProviders: nextConnectedProviders,
     });
   };
 
@@ -151,22 +168,45 @@ export default function SettingsModal({ isOpen, onClose, config, onSave }: Setti
   };
 
   const handleDisconnect = () => {
-    setApiKey('');
+    const nextConnectedProviders = {
+      ...(config.connectedProviders || {}),
+      [provider]: false,
+    };
+
     onSave({
       provider,
-      apiKey: '',
+      apiKey: config.apiKeys?.[provider] || '',
+      apiKeys: config.apiKeys || {},
       model: model.trim() || DEFAULT_MODEL[provider],
+      models: {
+        ...(config.models || {}),
+        [provider]: model.trim() || DEFAULT_MODEL[provider],
+      },
       connected: false,
+      connectedProviders: nextConnectedProviders,
     });
   };
 
   const handleDeleteKey = () => {
     setApiKey('');
+    const nextApiKeys = { ...(config.apiKeys || {}) };
+    delete nextApiKeys[provider];
+    const nextConnectedProviders = {
+      ...(config.connectedProviders || {}),
+      [provider]: false,
+    };
+
     onSave({
       provider,
       apiKey: '',
+      apiKeys: nextApiKeys,
       model: model.trim() || DEFAULT_MODEL[provider],
+      models: {
+        ...(config.models || {}),
+        [provider]: model.trim() || DEFAULT_MODEL[provider],
+      },
       connected: false,
+      connectedProviders: nextConnectedProviders,
     });
   };
 
@@ -195,7 +235,6 @@ export default function SettingsModal({ isOpen, onClose, config, onSave }: Setti
                   type="button"
                   onClick={() => {
                     setProvider(item);
-                    setModel(DEFAULT_MODEL[item]);
                   }}
                   style={{
                     ...styles.segmentButton,
@@ -276,6 +315,13 @@ export default function SettingsModal({ isOpen, onClose, config, onSave }: Setti
                 ))}
               </datalist>
             </div>
+            <select value={model} onChange={(e) => setModel(e.target.value)} style={styles.modelSelect}>
+              {modelOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
             <div style={styles.modelStatusRow}>
               <p className="caption">
                 {modelsStatus === 'loading' ? `Loading ${providerMeta.label} models...` : modelsMessage || `Using ${providerMeta.label} model options.`}
@@ -425,6 +471,9 @@ const styles: Record<string, React.CSSProperties> = {
   },
   modelInput: {
     paddingLeft: '36px',
+  },
+  modelSelect: {
+    marginTop: '6px',
   },
   modelStatusRow: {
     display: 'flex',

@@ -1,18 +1,19 @@
 'use client';
 
 import React from 'react';
-import { Briefcase, Settings, User, Plus, Key } from 'lucide-react';
+import { Briefcase, Settings, User, Plus, Key, Search } from 'lucide-react';
 import { AIProvider } from '../types';
 
 interface TopNavProps {
   onOpenSettings: () => void;
   onOpenProfile: () => void;
   onOpenAddJob: () => void;
+  onOpenJobSearch: () => void;
   hasApiKey: boolean;
   provider: AIProvider;
 }
 
-export default function TopNav({ onOpenSettings, onOpenProfile, onOpenAddJob, hasApiKey, provider }: TopNavProps) {
+export default function TopNav({ onOpenSettings, onOpenProfile, onOpenAddJob, onOpenJobSearch, hasApiKey, provider }: TopNavProps) {
   const providerLabel = provider === 'groq' ? 'Groq' : 'OpenRouter';
 
   return (
@@ -51,6 +52,11 @@ export default function TopNav({ onOpenSettings, onOpenProfile, onOpenAddJob, ha
           <button onClick={onOpenSettings} className="button-secondary" style={styles.navBtn}>
             <Settings size={14} />
             <span>Settings</span>
+          </button>
+
+          <button onClick={onOpenJobSearch} className="button-secondary" style={styles.navBtn}>
+            <Search size={14} />
+            <span>Search Jobs</span>
           </button>
 
           <button onClick={onOpenAddJob} className="button-primary" style={styles.addBtn}>

@@ -7,6 +7,7 @@ import SettingsModal from '../components/SettingsModal';
 import ProfileModal from '../components/ProfileModal';
 import AddJobModal from '../components/AddJobModal';
 import JobDetailsModal from '../components/JobDetailsModal';
+import JobSearchModal from '../components/JobSearchModal';
 import { AIProvider, JobCard, UserProfile, OpenRouterConfig, JobStatus } from '../types';
 
 // Default Seeding Data for Vikrant
@@ -20,17 +21,42 @@ const DEFAULT_PROFILE: UserProfile = {
 const DEFAULT_CONFIG: OpenRouterConfig = {
   provider: 'openrouter',
   apiKey: '',
+  apiKeys: {},
   model: 'google/gemini-2.5-flash',
+  models: {
+    openrouter: 'google/gemini-2.5-flash',
+    groq: 'llama-3.3-70b-versatile',
+  },
   connected: false,
+  connectedProviders: {},
 };
 
 const normalizeConfig = (storedConfig: Partial<OpenRouterConfig> | null): OpenRouterConfig => {
   const provider: AIProvider = storedConfig?.provider === 'groq' ? 'groq' : 'openrouter';
+  const apiKeys = { ...(storedConfig?.apiKeys || {}) };
+  const models = { ...DEFAULT_CONFIG.models, ...(storedConfig?.models || {}) };
+
+  if (storedConfig?.apiKey && !apiKeys[provider]) {
+    apiKeys[provider] = storedConfig.apiKey;
+  }
+
+  if (storedConfig?.model) {
+    models[provider] = storedConfig.model;
+  }
+
+  const connectedProviders = {
+    ...(storedConfig?.connectedProviders || {}),
+    [provider]: storedConfig?.connected ?? Boolean(apiKeys[provider]),
+  };
+
   return {
     provider,
-    apiKey: storedConfig?.apiKey || '',
-    model: storedConfig?.model || (provider === 'groq' ? 'llama-3.3-70b-versatile' : 'google/gemini-2.5-flash'),
-    connected: storedConfig?.connected ?? Boolean(storedConfig?.apiKey),
+    apiKey: apiKeys[provider] || '',
+    apiKeys,
+    model: models[provider] || (provider === 'groq' ? 'llama-3.3-70b-versatile' : 'google/gemini-2.5-flash'),
+    models,
+    connected: connectedProviders[provider] ?? Boolean(apiKeys[provider]),
+    connectedProviders,
   };
 };
 
@@ -111,6 +137,7 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isAddJobOpen, setIsAddJobOpen] = useState(false);
+  const [isJobSearchOpen, setIsJobSearchOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<JobCard | null>(null);
 
   const [mounted, setMounted] = useState(false);
@@ -164,6 +191,15 @@ export default function Home() {
     saveJobs([newJob, ...jobs]);
   };
 
+  const handleAddJobs = (jobItems: Array<Omit<JobCard, 'id' | 'dateAdded'>>) => {
+    const newJobs: JobCard[] = jobItems.map((jobData) => ({
+      ...jobData,
+      id: Math.random().toString(36).substring(2, 9),
+      dateAdded: new Date().toISOString(),
+    }));
+    saveJobs([...newJobs, ...jobs]);
+  };
+
   // Move Job column
   const handleMoveJob = (id: string, newStatus: JobStatus) => {
     const updatedJobs = jobs.map((job) => {
@@ -206,8 +242,9 @@ export default function Home() {
 
   // Save Settings
   const handleSaveSettings = (newConfig: OpenRouterConfig) => {
-    setConfig(newConfig);
-    localStorage.setItem('jp_config', JSON.stringify(newConfig));
+    const normalizedConfig = normalizeConfig(newConfig);
+    setConfig(normalizedConfig);
+    localStorage.setItem('jp_config', JSON.stringify(normalizedConfig));
   };
 
   if (!mounted) {
@@ -219,7 +256,9 @@ export default function Home() {
   }
 
   const hasEnvApiKey = config.provider === 'openrouter' && process.env.NEXT_PUBLIC_HAS_ENV_KEY === 'true';
-  const hasApiKey = config.connected !== false && (config.apiKey !== '' || hasEnvApiKey);
+  const activeApiKey = config.apiKeys?.[config.provider] || config.apiKey || '';
+  const activeModel = config.models?.[config.provider] || config.model;
+  const hasApiKey = config.connectedProviders?.[config.provider] !== false && (activeApiKey !== '' || hasEnvApiKey);
 
   return (
     <div style={{ backgroundColor: 'var(--color-canvas)', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -227,6 +266,7 @@ export default function Home() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenProfile={() => setIsProfileOpen(true)}
         onOpenAddJob={() => setIsAddJobOpen(true)}
+        onOpenJobSearch={() => setIsJobSearchOpen(true)}
         hasApiKey={hasApiKey}
         provider={config.provider}
       />
@@ -270,9 +310,20 @@ export default function Home() {
         isOpen={isAddJobOpen}
         onClose={() => setIsAddJobOpen(false)}
         onAdd={handleAddJob}
-        aiApiKey={hasApiKey ? config.apiKey : ''}
-        aiModel={config.model}
+        aiApiKey={hasApiKey ? activeApiKey : ''}
+        aiModel={activeModel}
         aiProvider={config.provider}
+      />
+
+      <JobSearchModal
+        isOpen={isJobSearchOpen}
+        onClose={() => setIsJobSearchOpen(false)}
+        profile={profile}
+        aiApiKey={hasApiKey ? activeApiKey : ''}
+        aiModel={activeModel}
+        aiProvider={config.provider}
+        openRouterApiKey={config.apiKeys?.openrouter || ''}
+        onAddJobs={handleAddJobs}
       />
 
       {selectedJob && (
@@ -281,8 +332,8 @@ export default function Home() {
           onClose={() => setSelectedJob(null)}
           job={selectedJob}
           profile={profile}
-          aiApiKey={hasApiKey ? config.apiKey : ''}
-          aiModel={config.model}
+          aiApiKey={hasApiKey ? activeApiKey : ''}
+          aiModel={activeModel}
           aiProvider={config.provider}
           onSaveJob={handleSaveJob}
           onDeleteJob={handleDeleteJob}

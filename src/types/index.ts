@@ -18,6 +18,32 @@ export interface JobCard {
   interviewQuestions?: string; // Stored JSON or raw text
 }
 
+export interface JobSearchResult {
+  id: string;
+  company: string;
+  title: string;
+  location?: string;
+  salary?: string;
+  url?: string;
+  description: string;
+  matchScore: number;
+  matchReason: string;
+  gaps?: string;
+  suggestedKeywords?: string;
+  source?: string;
+}
+
+export interface JobSearchCriteria {
+  targetRole: string;
+  location: string;
+  workMode: 'any' | 'remote' | 'hybrid' | 'onsite';
+  salary: string;
+  keywords: string;
+  excludedCompanies: string;
+  notes: string;
+  askQuestionsFirst: boolean;
+}
+
 export interface UserProfile {
   name: string;
   targetTitle: string;
@@ -33,6 +59,9 @@ export type AIProvider = 'openrouter' | 'groq';
 export interface OpenRouterConfig {
   provider: AIProvider;
   apiKey: string;
+  apiKeys?: Partial<Record<AIProvider, string>>;
   model: string;
+  models?: Partial<Record<AIProvider, string>>;
   connected?: boolean;
+  connectedProviders?: Partial<Record<AIProvider, boolean>>;
 }
