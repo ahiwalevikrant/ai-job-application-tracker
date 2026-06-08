@@ -332,24 +332,6 @@ npm run start    # Start production server
 npm run lint     # Run ESLint
 ```
 
-## Suggested GitHub Repository Names
-
-Recommended:
-
-```text
-ai-job-application-tracker
-```
-
-Other options:
-
-```text
-job-portal-ai-tracker
-career-pipeline-ai
-ai-career-application-board
-smart-job-tracker
-groq-job-search-tracker
-```
-
 ## License
+MIT
 
-Add a license before publishing publicly. MIT is a good default for portfolio projects.
