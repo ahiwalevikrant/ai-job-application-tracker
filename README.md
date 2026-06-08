@@ -2,11 +2,6 @@
 
 A local-first job application tracker that helps manage a career pipeline, search live jobs, import job postings, upload resume context, and generate tailored application materials with Groq or OpenRouter.
 
-Recommended GitHub repository name:
-
-```text
-ai-job-application-tracker
-```
 
 ## Highlights
 
