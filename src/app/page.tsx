@@ -9,6 +9,14 @@ import AddJobModal from '../components/AddJobModal';
 import JobDetailsModal from '../components/JobDetailsModal';
 import JobSearchModal from '../components/JobSearchModal';
 import { AIProvider, JobCard, UserProfile, OpenRouterConfig, JobStatus } from '../types';
+import {
+  createJobAction,
+  createJobsAction,
+  deleteJobAction,
+  getWorkspaceDataAction,
+  saveProfileAction,
+  updateJobAction,
+} from './actions';
 
 // Default Seeding Data for Vikrant
 const DEFAULT_PROFILE: UserProfile = {
@@ -60,78 +68,11 @@ const normalizeConfig = (storedConfig: Partial<OpenRouterConfig> | null): OpenRo
   };
 };
 
-const DEFAULT_JOBS: JobCard[] = [
-  {
-    id: 'stripe-123',
-    company: 'Stripe',
-    title: 'Senior Full Stack Engineer (Java / React)',
-    description: `We are looking for a Senior Software Engineer to join our Payment Interfaces team.
-
-Key Responsibilities:
-- Design, build, and maintain scalable APIs using Java and Spring Boot.
-- Create elegant developer dashboards and customer checkout interfaces using React and TypeScript.
-- Optimize web application performance and end-to-end user experiences.
-
-Requirements:
-- 5+ years of software engineering experience.
-- Strong proficiency in Java, Spring frameworks, and database schema design.
-- Practical experience with React, TypeScript, and modern frontend styling.
-- Experience with cloud providers (AWS/GCP) and CI/CD pipelines.`,
-    status: 'applied',
-    location: 'Remote (US/Canada)',
-    salary: '$165,000 - $195,000',
-    dateAdded: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
-    notes: 'Referral requested from John Doe. Resume tailored for payments backend focus.',
-  },
-  {
-    id: 'cohere-456',
-    company: 'Cohere',
-    title: 'Gen AI Integrations Developer',
-    description: `Join Cohere's Enterprise Integration team to build next-generation LLM pipelines.
-
-Key Responsibilities:
-- Build customer-facing tools that showcase Cohere API capabilities.
-- Integrate LLM embeddings, RAG frameworks, and Agentic pipelines into production apps.
-- Implement robust microservices in Python or Java Spring Boot to handle high-concurrency LLM calls.
-
-Requirements:
-- Hands-on experience with LLM models, Prompt Engineering, and RAG.
-- Solid web framework experience using React or Angular.
-- Background in backend microservices (Spring Boot is a big plus).
-- Passionate about Generative AI implementations.`,
-    status: 'wishlist',
-    location: 'Toronto, ON (Hybrid)',
-    salary: '$140,000 - $170,000',
-    dateAdded: new Date().toISOString(), // today
-    notes: 'Position aligns perfectly with my AI integrations and Spring Boot backend profile.',
-  },
-  {
-    id: 'jpmc-789',
-    company: 'JPMorgan Chase',
-    title: 'Associate Software Engineer - Java & Angular',
-    description: `We are seeking an experienced developer to join our Asset Management technology team.
-
-Key Responsibilities:
-- Build and refactor core microservices using Java 17, Spring Boot, and Hibernate.
-- Design internal analytical dashboards using Angular (version 15+).
-- Write robust unit and integration tests using JUnit and Mockito.
-
-Requirements:
-- 3+ years of professional Java software development.
-- Strong knowledge of Angular, TypeScript, and RxJS.
-- Familiarity with SQL databases, Kafka, and event-driven architectures.`,
-    status: 'interviewing',
-    location: 'Plano, TX (On-site)',
-    salary: '$130,000 - $150,000',
-    dateAdded: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
-    notes: 'First round phone interview completed. Tech panel scheduled for Tuesday.',
-  },
-];
-
 export default function Home() {
   const [jobs, setJobs] = useState<JobCard[]>([]);
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const [config, setConfig] = useState<OpenRouterConfig>(DEFAULT_CONFIG);
+  const [dataError, setDataError] = useState('');
   
   // Modal toggle states
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -142,109 +83,121 @@ export default function Home() {
 
   const [mounted, setMounted] = useState(false);
 
-  // Load from localStorage
+  // Load persisted profile and jobs from MySQL. API settings are intentionally session-only.
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedJobs = localStorage.getItem('jp_jobs');
-      const storedProfile = localStorage.getItem('jp_profile');
-      const storedConfig = localStorage.getItem('jp_config');
+    let active = true;
 
-      if (storedJobs) {
-        setJobs(JSON.parse(storedJobs));
-      } else {
-        setJobs(DEFAULT_JOBS);
-        localStorage.setItem('jp_jobs', JSON.stringify(DEFAULT_JOBS));
-      }
+    async function loadWorkspaceData() {
+      const result = await getWorkspaceDataAction();
+      if (!active) return;
 
-      if (storedProfile) {
-        setProfile(JSON.parse(storedProfile));
+      if (result.success) {
+        setJobs(result.jobs);
+        setProfile(result.profile || DEFAULT_PROFILE);
+        setDataError('');
       } else {
+        setJobs([]);
         setProfile(DEFAULT_PROFILE);
-        localStorage.setItem('jp_profile', JSON.stringify(DEFAULT_PROFILE));
+        setDataError(result.error || 'Unable to load saved profile and jobs from MySQL.');
       }
 
-      if (storedConfig) {
-        const parsedConfig = normalizeConfig(JSON.parse(storedConfig));
-        setConfig(parsedConfig);
-        localStorage.setItem('jp_config', JSON.stringify(parsedConfig));
-      } else {
-        localStorage.setItem('jp_config', JSON.stringify(DEFAULT_CONFIG));
-      }
-      
       setMounted(true);
     }
+
+    void loadWorkspaceData();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
-  // Save jobs to localStorage
-  const saveJobs = (newJobs: JobCard[]) => {
-    setJobs(newJobs);
-    localStorage.setItem('jp_jobs', JSON.stringify(newJobs));
-  };
-
   // Add Job
-  const handleAddJob = (jobData: Omit<JobCard, 'id' | 'dateAdded'>) => {
-    const newJob: JobCard = {
-      ...jobData,
-      id: Math.random().toString(36).substring(2, 9),
-      dateAdded: new Date().toISOString(),
-    };
-    saveJobs([newJob, ...jobs]);
+  const handleAddJob = async (jobData: Omit<JobCard, 'id' | 'dateAdded'>) => {
+    const result = await createJobAction(jobData);
+    if (result.success && result.job) {
+      setJobs((current) => [result.job, ...current]);
+      setDataError('');
+    } else {
+      setDataError(result.error || 'Unable to save the job to MySQL.');
+    }
   };
 
-  const handleAddJobs = (jobItems: Array<Omit<JobCard, 'id' | 'dateAdded'>>) => {
-    const newJobs: JobCard[] = jobItems.map((jobData) => ({
-      ...jobData,
-      id: Math.random().toString(36).substring(2, 9),
-      dateAdded: new Date().toISOString(),
-    }));
-    saveJobs([...newJobs, ...jobs]);
+  const handleAddJobs = async (jobItems: Array<Omit<JobCard, 'id' | 'dateAdded'>>) => {
+    const result = await createJobsAction(jobItems);
+    if (result.success && result.jobs) {
+      setJobs((current) => [...result.jobs, ...current]);
+      setDataError('');
+    } else {
+      setDataError(result.error || 'Unable to save the selected jobs to MySQL.');
+    }
   };
 
   // Move Job column
-  const handleMoveJob = (id: string, newStatus: JobStatus) => {
-    const updatedJobs = jobs.map((job) => {
-      if (job.id === id) {
-        return { ...job, status: newStatus };
-      }
-      return job;
-    });
-    saveJobs(updatedJobs);
+  const handleMoveJob = async (id: string, newStatus: JobStatus) => {
+    const job = jobs.find((item) => item.id === id);
+    if (!job) return;
+
+    const updatedJob = { ...job, status: newStatus };
+    setJobs((current) => current.map((item) => (item.id === id ? updatedJob : item)));
+    const result = await updateJobAction(updatedJob);
+    if (!result.success) {
+      setDataError(result.error || 'Unable to update the job status in MySQL.');
+      setJobs((current) => current.map((item) => (item.id === id ? job : item)));
+    } else {
+      setDataError('');
+    }
   };
 
   // Save/Update Job
-  const handleSaveJob = (updatedJob: JobCard) => {
-    const updatedJobs = jobs.map((job) => {
-      if (job.id === updatedJob.id) {
-        return updatedJob;
+  const handleSaveJob = async (updatedJob: JobCard) => {
+    const previousJob = jobs.find((job) => job.id === updatedJob.id);
+    setJobs((current) => current.map((job) => (job.id === updatedJob.id ? updatedJob : job)));
+    setSelectedJob((current) => (current?.id === updatedJob.id ? updatedJob : current));
+
+    const result = await updateJobAction(updatedJob);
+    if (!result.success) {
+      setDataError(result.error || 'Unable to save the job in MySQL.');
+      if (previousJob) {
+        setJobs((current) => current.map((job) => (job.id === updatedJob.id ? previousJob : job)));
+        setSelectedJob((current) => (current?.id === updatedJob.id ? previousJob : current));
       }
-      return job;
-    });
-    saveJobs(updatedJobs);
-    
-    // Update selected job state as well if it's currently open
-    if (selectedJob && selectedJob.id === updatedJob.id) {
-      setSelectedJob(updatedJob);
+    } else {
+      setDataError('');
     }
   };
 
   // Delete Job
-  const handleDeleteJob = (id: string) => {
-    const updatedJobs = jobs.filter((job) => job.id !== id);
-    saveJobs(updatedJobs);
+  const handleDeleteJob = async (id: string) => {
+    const previousJobs = jobs;
+    setJobs((current) => current.filter((job) => job.id !== id));
     setSelectedJob(null);
+
+    const result = await deleteJobAction(id);
+    if (!result.success) {
+      setJobs(previousJobs);
+      setDataError(result.error || 'Unable to delete the job from MySQL.');
+    } else {
+      setDataError('');
+    }
   };
 
   // Save Profile
-  const handleSaveProfile = (newProfile: UserProfile) => {
+  const handleSaveProfile = async (newProfile: UserProfile) => {
+    const previousProfile = profile;
     setProfile(newProfile);
-    localStorage.setItem('jp_profile', JSON.stringify(newProfile));
+    const result = await saveProfileAction(newProfile);
+    if (!result.success) {
+      setProfile(previousProfile);
+      setDataError(result.error || 'Unable to save the profile to MySQL.');
+    } else {
+      setDataError('');
+    }
   };
 
-  // Save Settings
+  // Keep settings in memory only. API keys are not stored locally or in MySQL.
   const handleSaveSettings = (newConfig: OpenRouterConfig) => {
     const normalizedConfig = normalizeConfig(newConfig);
     setConfig(normalizedConfig);
-    localStorage.setItem('jp_config', JSON.stringify(normalizedConfig));
   };
 
   if (!mounted) {
@@ -274,7 +227,7 @@ export default function Home() {
       <main style={styles.mainContainer}>
         {/* Header section */}
         <div style={styles.header}>
-          <span className="eyebrow" style={{ marginBottom: 4 }}>Vikrant's Pipeline</span>
+          <span className="eyebrow" style={{ marginBottom: 4 }}>Vikrant&apos;s Pipeline</span>
           <h1 className="display-md" style={{ color: 'var(--color-ink)', marginBottom: 8 }}>
             Application Tracker
           </h1>
@@ -282,6 +235,12 @@ export default function Home() {
             Track and tailor your job applications. Drag jobs between columns and click to generate custom cover letters, resume bullet points, and interview questions.
           </p>
         </div>
+
+        {dataError && (
+          <div style={styles.errorAlert}>
+            {dataError}
+          </div>
+        )}
 
         {/* Board component */}
         <Board
@@ -358,5 +317,13 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'flex-start',
+  },
+  errorAlert: {
+    backgroundColor: 'var(--color-danger-bg)',
+    border: '1px solid rgba(226, 72, 72, 0.3)',
+    borderRadius: 'var(--rounded-md)',
+    padding: '10px 14px',
+    color: 'var(--color-danger)',
+    fontSize: '14px',
   },
 };

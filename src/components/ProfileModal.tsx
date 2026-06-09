@@ -8,7 +8,7 @@ interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   profile: UserProfile;
-  onSave: (newProfile: UserProfile) => void;
+  onSave: (newProfile: UserProfile) => Promise<void> | void;
 }
 
 // Helper to dynamically load PDF.js from CDN
@@ -73,7 +73,7 @@ export default function ProfileModal({ isOpen, onClose, profile, onSave }: Profi
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Limit to 4MB (localStorage limits)
+    // Keep uploads small enough for comfortable local database reads/writes.
     if (file.size > 4 * 1024 * 1024) {
       setUploadError('File is too large. Please upload a file smaller than 4MB.');
       return;
@@ -145,9 +145,9 @@ export default function ProfileModal({ isOpen, onClose, profile, onSave }: Profi
     setUploadError('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({
+    await onSave({
       name,
       targetTitle,
       skills,

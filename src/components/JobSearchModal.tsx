@@ -13,7 +13,7 @@ interface JobSearchModalProps {
   aiModel?: string;
   aiProvider: AIProvider;
   openRouterApiKey: string;
-  onAddJobs: (jobs: Array<Omit<JobCard, 'id' | 'dateAdded'>>) => void;
+  onAddJobs: (jobs: Array<Omit<JobCard, 'id' | 'dateAdded'>>) => Promise<void> | void;
 }
 
 const DEFAULT_CRITERIA: JobSearchCriteria = {
@@ -105,10 +105,10 @@ export default function JobSearchModal({
     });
   };
 
-  const handleAddSelected = () => {
+  const handleAddSelected = async () => {
     if (selectedResults.length === 0) return;
 
-    onAddJobs(
+    await onAddJobs(
       selectedResults.map((result) => ({
         company: result.company,
         title: result.title,

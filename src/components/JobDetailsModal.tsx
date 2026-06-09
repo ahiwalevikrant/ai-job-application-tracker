@@ -13,8 +13,8 @@ interface JobDetailsModalProps {
   aiApiKey: string;
   aiModel?: string;
   aiProvider?: AIProvider;
-  onSaveJob: (updatedJob: JobCard) => void;
-  onDeleteJob: (id: string) => void;
+  onSaveJob: (updatedJob: JobCard) => Promise<void> | void;
+  onDeleteJob: (id: string) => Promise<void> | void;
 }
 
 type TabType = 'description' | 'coverLetter' | 'resumeBullets' | 'interviewQuestions' | 'notes';
@@ -60,11 +60,11 @@ export default function JobDetailsModal({
 
   const handleStatusChange = (newStatus: JobStatus) => {
     setStatus(newStatus);
-    onSaveJob({ ...job, status: newStatus });
+    void onSaveJob({ ...job, status: newStatus });
   };
 
-  const handleSaveNotes = () => {
-    onSaveJob({ ...job, notes });
+  const handleSaveNotes = async () => {
+    await onSaveJob({ ...job, notes });
   };
 
   const handleGenerate = async (type: 'cover_letter' | 'resume_bullets' | 'interview_questions') => {
@@ -90,7 +90,7 @@ export default function JobDetailsModal({
         const generatedText = result.text;
         
         // Save locally and update state
-        let updatedJob = { ...job };
+        const updatedJob = { ...job };
         if (type === 'cover_letter') {
           setCoverLetter(generatedText);
           updatedJob.coverLetter = generatedText;
@@ -102,7 +102,7 @@ export default function JobDetailsModal({
           updatedJob.interviewQuestions = generatedText;
         }
         
-        onSaveJob(updatedJob);
+        await onSaveJob(updatedJob);
       } else {
         setError(result.error || 'Failed to generate AI materials.');
       }
@@ -119,9 +119,9 @@ export default function JobDetailsModal({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (confirm(`Are you sure you want to delete ${job.title} at ${job.company}?`)) {
-      onDeleteJob(job.id);
+      await onDeleteJob(job.id);
       onClose();
     }
   };
@@ -212,13 +212,6 @@ export default function JobDetailsModal({
               </div>
             )}
 
-            {coverLetter && (
-              <div style={styles.regenerateRow}>
-                <button onClick={() => handleGenerate('cover_letter')} className="button-secondary">
-                  <Sparkles size={14} /> Re-generate
-                </button>
-              </div>
-            )}
           </div>
         );
       case 'resumeBullets':
@@ -251,13 +244,6 @@ export default function JobDetailsModal({
               </div>
             )}
 
-            {resumeBullets && (
-              <div style={styles.regenerateRow}>
-                <button onClick={() => handleGenerate('resume_bullets')} className="button-secondary">
-                  <Sparkles size={14} /> Re-generate
-                </button>
-              </div>
-            )}
           </div>
         );
       case 'interviewQuestions':
@@ -290,13 +276,6 @@ export default function JobDetailsModal({
               </div>
             )}
 
-            {interviewQuestions && (
-              <div style={styles.regenerateRow}>
-                <button onClick={() => handleGenerate('interview_questions')} className="button-secondary">
-                  <Sparkles size={14} /> Re-generate
-                </button>
-              </div>
-            )}
           </div>
         );
       case 'notes':
@@ -660,13 +639,6 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 'var(--spacing-md)',
-  },
-  regenerateRow: {
-    display: 'flex',
-    justifyContent: 'flex-start',
-    marginTop: 'var(--spacing-md)',
-    borderTop: '1px solid var(--color-hairline)',
-    paddingTop: 'var(--spacing-sm)',
   },
   textarea: {
     flex: 1,

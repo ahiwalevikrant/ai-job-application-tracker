@@ -1,7 +1,9 @@
 'use server';
 
 import * as cheerio from 'cheerio';
-import { AIProvider, JobSearchCriteria, JobSearchResult } from '../types';
+import { randomUUID } from 'crypto';
+import { AIProvider, JobCard, JobSearchCriteria, JobSearchResult, UserProfile } from '../types';
+import { deleteJob, getJobs, getProfile, saveJob, saveJobs, saveProfile } from '../lib/database';
 
 interface OpenRouterResponse {
   choices: Array<{
@@ -29,6 +31,84 @@ const DEFAULT_MODELS: Record<AIProvider, string> = {
   openrouter: 'google/gemini-2.5-flash',
   groq: 'llama-3.3-70b-versatile',
 };
+
+function formatDatabaseError(error: unknown) {
+  const message = error instanceof Error ? error.message : 'Database request failed.';
+  return message.includes('Unknown database')
+    ? `${message} Create the MySQL database named ${process.env.MYSQL_DATABASE || 'job_portal'} first, or update MYSQL_DATABASE in .env.local.`
+    : message;
+}
+
+export async function getWorkspaceDataAction() {
+  try {
+    const [jobs, profile] = await Promise.all([getJobs(), getProfile()]);
+    return { success: true, jobs, profile };
+  } catch (error: unknown) {
+    console.error('Load Workspace Data Error:', error);
+    return { success: false, error: formatDatabaseError(error), jobs: [], profile: null };
+  }
+}
+
+export async function saveProfileAction(profile: UserProfile) {
+  try {
+    const savedProfile = await saveProfile(profile);
+    return { success: true, profile: savedProfile };
+  } catch (error: unknown) {
+    console.error('Save Profile Error:', error);
+    return { success: false, error: formatDatabaseError(error) };
+  }
+}
+
+export async function createJobAction(jobData: Omit<JobCard, 'id' | 'dateAdded'>) {
+  try {
+    const job: JobCard = {
+      ...jobData,
+      id: randomUUID(),
+      dateAdded: new Date().toISOString(),
+    };
+    await saveJob(job);
+    return { success: true, job };
+  } catch (error: unknown) {
+    console.error('Create Job Error:', error);
+    return { success: false, error: formatDatabaseError(error) };
+  }
+}
+
+export async function createJobsAction(jobItems: Array<Omit<JobCard, 'id' | 'dateAdded'>>) {
+  try {
+    const createdAt = new Date().toISOString();
+    const jobs: JobCard[] = jobItems.map((jobData) => ({
+      ...jobData,
+      id: randomUUID(),
+      dateAdded: createdAt,
+    }));
+    await saveJobs(jobs);
+    return { success: true, jobs };
+  } catch (error: unknown) {
+    console.error('Create Jobs Error:', error);
+    return { success: false, error: formatDatabaseError(error) };
+  }
+}
+
+export async function updateJobAction(job: JobCard) {
+  try {
+    await saveJob(job);
+    return { success: true, job };
+  } catch (error: unknown) {
+    console.error('Update Job Error:', error);
+    return { success: false, error: formatDatabaseError(error) };
+  }
+}
+
+export async function deleteJobAction(id: string) {
+  try {
+    await deleteJob(id);
+    return { success: true };
+  } catch (error: unknown) {
+    console.error('Delete Job Error:', error);
+    return { success: false, error: formatDatabaseError(error) };
+  }
+}
 
 function getProvider(provider?: AIProvider): AIProvider {
   return provider === 'groq' ? 'groq' : DEFAULT_PROVIDER;

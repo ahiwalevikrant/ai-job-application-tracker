@@ -11,6 +11,7 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "lucide-react": "^1.17.0",
+    "mysql2": "^3.22.5",
     "next": "16.2.7",
     "react": "19.2.4",
     "react-dom": "19.2.4"

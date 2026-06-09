@@ -8,7 +8,7 @@ import { AIProvider, JobCard, JobStatus } from '../types';
 interface AddJobModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (job: Omit<JobCard, 'id' | 'dateAdded'>) => void;
+  onAdd: (job: Omit<JobCard, 'id' | 'dateAdded'>) => Promise<void> | void;
   aiApiKey: string;
   aiModel?: string;
   aiProvider?: AIProvider;
@@ -56,14 +56,15 @@ export default function AddJobModal({ isOpen, onClose, onAdd, aiApiKey, aiModel,
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!company || !title) {
       setError('Company Name and Job Title are required.');
       return;
     }
 
-    onAdd({
+    setLoading(true);
+    await onAdd({
       company,
       title,
       description,
@@ -73,6 +74,7 @@ export default function AddJobModal({ isOpen, onClose, onAdd, aiApiKey, aiModel,
       salary: salary || undefined,
       notes: notes || undefined,
     });
+    setLoading(false);
 
     // Reset and close
     setUrl('');
