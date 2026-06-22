@@ -54,6 +54,13 @@ export interface UserProfile {
   resumeText?: string; // extracted text content
 }
 
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  picture?: string;
+}
+
 export type AIProvider = 'openrouter' | 'groq';
 
 export interface OpenRouterConfig {

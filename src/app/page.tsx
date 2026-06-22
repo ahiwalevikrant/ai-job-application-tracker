@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import TopNav from '../components/TopNav';
+import LoginPage from '../components/LoginPage';
 import Board from '../components/Board';
 import SettingsModal from '../components/SettingsModal';
 import ProfileModal from '../components/ProfileModal';
 import AddJobModal from '../components/AddJobModal';
 import JobDetailsModal from '../components/JobDetailsModal';
 import JobSearchModal from '../components/JobSearchModal';
-import { AIProvider, JobCard, UserProfile, OpenRouterConfig, JobStatus } from '../types';
+import { AIProvider, AuthUser, JobCard, UserProfile, OpenRouterConfig, JobStatus } from '../types';
 
 // Default Seeding Data for Vikrant
 const DEFAULT_PROFILE: UserProfile = {
@@ -128,7 +129,25 @@ Requirements:
   },
 ];
 
+const AUTH_STORAGE_KEY = 'jp_auth_user';
+
+const getStorageKey = (user: AuthUser, key: 'jobs' | 'profile' | 'config') => {
+  const accountKey = user.email || user.id;
+  return `jp_${key}_${accountKey}`;
+};
+
+const getPipelineOwner = (profile: UserProfile, authUser: AuthUser | null) => {
+  const name = profile.name?.trim() || authUser?.name?.trim() || 'My';
+  return name.split(/\s+/)[0] || 'My';
+};
+
+const createProfileForUser = (user: AuthUser): UserProfile => ({
+  ...DEFAULT_PROFILE,
+  name: user.name || DEFAULT_PROFILE.name,
+});
+
 export default function Home() {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [jobs, setJobs] = useState<JobCard[]>([]);
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const [config, setConfig] = useState<OpenRouterConfig>(DEFAULT_CONFIG);
@@ -142,43 +161,71 @@ export default function Home() {
 
   const [mounted, setMounted] = useState(false);
 
-  // Load from localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const storedJobs = localStorage.getItem('jp_jobs');
-      const storedProfile = localStorage.getItem('jp_profile');
-      const storedConfig = localStorage.getItem('jp_config');
+      const storedAuthUser = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (storedAuthUser) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setAuthUser(JSON.parse(storedAuthUser));
+      }
+
+      setMounted(true);
+    }
+  }, []);
+
+  // Load account-scoped data from localStorage
+  useEffect(() => {
+    if (!authUser || typeof window === 'undefined') return;
+
+      const storedJobs = localStorage.getItem(getStorageKey(authUser, 'jobs'));
+      const storedProfile = localStorage.getItem(getStorageKey(authUser, 'profile'));
+      const storedConfig = localStorage.getItem(getStorageKey(authUser, 'config'));
 
       if (storedJobs) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setJobs(JSON.parse(storedJobs));
       } else {
         setJobs(DEFAULT_JOBS);
-        localStorage.setItem('jp_jobs', JSON.stringify(DEFAULT_JOBS));
+        localStorage.setItem(getStorageKey(authUser, 'jobs'), JSON.stringify(DEFAULT_JOBS));
       }
 
       if (storedProfile) {
         setProfile(JSON.parse(storedProfile));
       } else {
-        setProfile(DEFAULT_PROFILE);
-        localStorage.setItem('jp_profile', JSON.stringify(DEFAULT_PROFILE));
+        const accountProfile = createProfileForUser(authUser);
+        setProfile(accountProfile);
+        localStorage.setItem(getStorageKey(authUser, 'profile'), JSON.stringify(accountProfile));
       }
 
       if (storedConfig) {
         const parsedConfig = normalizeConfig(JSON.parse(storedConfig));
         setConfig(parsedConfig);
-        localStorage.setItem('jp_config', JSON.stringify(parsedConfig));
+        localStorage.setItem(getStorageKey(authUser, 'config'), JSON.stringify(parsedConfig));
       } else {
-        localStorage.setItem('jp_config', JSON.stringify(DEFAULT_CONFIG));
+        setConfig(DEFAULT_CONFIG);
+        localStorage.setItem(getStorageKey(authUser, 'config'), JSON.stringify(DEFAULT_CONFIG));
       }
-      
-      setMounted(true);
-    }
-  }, []);
+  }, [authUser]);
 
   // Save jobs to localStorage
   const saveJobs = (newJobs: JobCard[]) => {
+    if (!authUser) return;
     setJobs(newJobs);
-    localStorage.setItem('jp_jobs', JSON.stringify(newJobs));
+    localStorage.setItem(getStorageKey(authUser, 'jobs'), JSON.stringify(newJobs));
+  };
+
+  const handleSignIn = (user: AuthUser) => {
+    setAuthUser(user);
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+  };
+
+  const handleSignOut = () => {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    setAuthUser(null);
+    setJobs([]);
+    setProfile(DEFAULT_PROFILE);
+    setConfig(DEFAULT_CONFIG);
+    setSelectedJob(null);
   };
 
   // Add Job
@@ -236,15 +283,17 @@ export default function Home() {
 
   // Save Profile
   const handleSaveProfile = (newProfile: UserProfile) => {
+    if (!authUser) return;
     setProfile(newProfile);
-    localStorage.setItem('jp_profile', JSON.stringify(newProfile));
+    localStorage.setItem(getStorageKey(authUser, 'profile'), JSON.stringify(newProfile));
   };
 
   // Save Settings
   const handleSaveSettings = (newConfig: OpenRouterConfig) => {
+    if (!authUser) return;
     const normalizedConfig = normalizeConfig(newConfig);
     setConfig(normalizedConfig);
-    localStorage.setItem('jp_config', JSON.stringify(normalizedConfig));
+    localStorage.setItem(getStorageKey(authUser, 'config'), JSON.stringify(normalizedConfig));
   };
 
   if (!mounted) {
@@ -255,10 +304,15 @@ export default function Home() {
     );
   }
 
+  if (!authUser) {
+    return <LoginPage onSignIn={handleSignIn} />;
+  }
+
   const hasEnvApiKey = config.provider === 'openrouter' && process.env.NEXT_PUBLIC_HAS_ENV_KEY === 'true';
   const activeApiKey = config.apiKeys?.[config.provider] || config.apiKey || '';
   const activeModel = config.models?.[config.provider] || config.model;
   const hasApiKey = config.connectedProviders?.[config.provider] !== false && (activeApiKey !== '' || hasEnvApiKey);
+  const pipelineOwner = getPipelineOwner(profile, authUser);
 
   return (
     <div style={{ backgroundColor: 'var(--color-canvas)', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -267,14 +321,17 @@ export default function Home() {
         onOpenProfile={() => setIsProfileOpen(true)}
         onOpenAddJob={() => setIsAddJobOpen(true)}
         onOpenJobSearch={() => setIsJobSearchOpen(true)}
+        onSignOut={handleSignOut}
         hasApiKey={hasApiKey}
         provider={config.provider}
+        userName={profile.name || authUser.name}
+        userPicture={authUser.picture}
       />
 
       <main style={styles.mainContainer}>
         {/* Header section */}
         <div style={styles.header}>
-          <span className="eyebrow" style={{ marginBottom: 4 }}>Vikrant's Pipeline</span>
+          <span className="eyebrow" style={{ marginBottom: 4 }}>{`${pipelineOwner}'s Pipeline`}</span>
           <h1 className="display-md" style={{ color: 'var(--color-ink)', marginBottom: 8 }}>
             Application Tracker
           </h1>

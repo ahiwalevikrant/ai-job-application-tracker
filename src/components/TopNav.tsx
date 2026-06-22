@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Briefcase, Settings, User, Plus, Key, Search } from 'lucide-react';
+import { Briefcase, Settings, User, Plus, Key, Search, LogOut } from 'lucide-react';
 import { AIProvider } from '../types';
 
 interface TopNavProps {
@@ -9,12 +9,26 @@ interface TopNavProps {
   onOpenProfile: () => void;
   onOpenAddJob: () => void;
   onOpenJobSearch: () => void;
+  onSignOut: () => void;
   hasApiKey: boolean;
   provider: AIProvider;
+  userName: string;
+  userPicture?: string;
 }
 
-export default function TopNav({ onOpenSettings, onOpenProfile, onOpenAddJob, onOpenJobSearch, hasApiKey, provider }: TopNavProps) {
+export default function TopNav({
+  onOpenSettings,
+  onOpenProfile,
+  onOpenAddJob,
+  onOpenJobSearch,
+  onSignOut,
+  hasApiKey,
+  provider,
+  userName,
+  userPicture,
+}: TopNavProps) {
   const providerLabel = provider === 'groq' ? 'Groq' : 'OpenRouter';
+  const firstName = userName.trim().split(/\s+/)[0] || 'My';
 
   return (
     <header style={styles.header}>
@@ -25,7 +39,7 @@ export default function TopNav({ onOpenSettings, onOpenProfile, onOpenAddJob, on
             <Briefcase size={16} style={{ color: 'var(--color-on-primary)' }} />
           </div>
           <span style={styles.logoText}>JobPortal</span>
-          <span className="eyebrow" style={styles.logoSubtext}>Vikrant</span>
+          <span className="eyebrow" style={styles.logoSubtext}>{firstName}</span>
         </div>
 
         {/* Navigation & Controls */}
@@ -62,6 +76,15 @@ export default function TopNav({ onOpenSettings, onOpenProfile, onOpenAddJob, on
           <button onClick={onOpenAddJob} className="button-primary" style={styles.addBtn}>
             <Plus size={14} />
             <span>Add Job</span>
+          </button>
+
+          <button onClick={onSignOut} className="button-tertiary" style={styles.avatarBtn} title={`Sign out ${userName}`}>
+            {userPicture ? (
+              <span style={{ ...styles.avatarImage, backgroundImage: `url(${userPicture})` }} />
+            ) : (
+              <User size={14} />
+            )}
+            <LogOut size={13} />
           </button>
         </div>
       </div>
@@ -144,5 +167,17 @@ const styles: Record<string, React.CSSProperties> = {
   addBtn: {
     padding: '6px 14px',
     height: '32px',
+  },
+  avatarBtn: {
+    height: '32px',
+    padding: '4px 8px',
+  },
+  avatarImage: {
+    width: '22px',
+    height: '22px',
+    borderRadius: 'var(--rounded-full)',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    display: 'inline-flex',
   },
 };
