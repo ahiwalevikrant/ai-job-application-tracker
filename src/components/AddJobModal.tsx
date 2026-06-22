@@ -21,7 +21,6 @@ export default function AddJobModal({ isOpen, onClose, onAdd, aiApiKey, aiModel,
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [salary, setSalary] = useState('');
-  const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<JobStatus>('wishlist');
 
   const [loading, setLoading] = useState(false);
@@ -71,7 +70,6 @@ export default function AddJobModal({ isOpen, onClose, onAdd, aiApiKey, aiModel,
       status,
       location: location || undefined,
       salary: salary || undefined,
-      notes: notes || undefined,
     });
 
     // Reset and close
@@ -81,7 +79,6 @@ export default function AddJobModal({ isOpen, onClose, onAdd, aiApiKey, aiModel,
     setDescription('');
     setLocation('');
     setSalary('');
-    setNotes('');
     setStatus('wishlist');
     setError('');
     onClose();
@@ -212,17 +209,6 @@ export default function AddJobModal({ isOpen, onClose, onAdd, aiApiKey, aiModel,
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Paste job details, key requirements, or description here..."
               rows={5}
-              style={styles.textarea}
-            />
-          </div>
-
-          <div style={styles.inputGroup}>
-            <label style={styles.label}>Personal Notes</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Referral name, tracking number, personal checklists..."
-              rows={2}
               style={styles.textarea}
             />
           </div>

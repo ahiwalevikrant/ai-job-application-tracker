@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Briefcase, CheckCircle2, Loader2, LogIn } from 'lucide-react';
+import { Loader2, LogIn, SquareKanban } from 'lucide-react';
 import { AuthUser } from '../types';
 
 declare global {
@@ -26,6 +26,8 @@ declare global {
         };
       };
     };
+    __jobPortalGoogleClientId?: string;
+    __jobPortalGoogleCallback?: (response: { credential?: string }) => void;
   }
 }
 
@@ -58,23 +60,28 @@ export default function LoginPage({ onSignIn }: LoginPageProps) {
         return;
       }
 
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: (response) => {
-          if (!response.credential) {
-            setStatus('error');
-            return;
-          }
+      window.__jobPortalGoogleCallback = (response) => {
+        if (!response.credential) {
+          setStatus('error');
+          return;
+        }
 
-          const payload = decodeJwtPayload(response.credential);
-          onSignIn({
-            id: payload.sub,
-            name: payload.name || payload.given_name || payload.email,
-            email: payload.email,
-            picture: payload.picture,
-          });
-        },
-      });
+        const payload = decodeJwtPayload(response.credential);
+        onSignIn({
+          id: payload.sub,
+          name: payload.name || payload.given_name || payload.email,
+          email: payload.email,
+          picture: payload.picture,
+        });
+      };
+
+      if (window.__jobPortalGoogleClientId !== clientId) {
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: (response) => window.__jobPortalGoogleCallback?.(response),
+        });
+        window.__jobPortalGoogleClientId = clientId;
+      }
 
       googleButtonRef.current.innerHTML = '';
       window.google.accounts.id.renderButton(googleButtonRef.current, {
@@ -112,7 +119,7 @@ export default function LoginPage({ onSignIn }: LoginPageProps) {
       <section style={styles.panel} className="animate-fade-in">
         <div style={styles.brandRow}>
           <div style={styles.logoBox}>
-            <Briefcase size={20} style={{ color: 'var(--color-on-primary)' }} />
+            <SquareKanban size={22} style={{ color: 'var(--color-primary-hover)' }} />
           </div>
           <div>
             <p className="eyebrow">JobPortal</p>
@@ -121,7 +128,7 @@ export default function LoginPage({ onSignIn }: LoginPageProps) {
         </div>
 
         <p className="subhead" style={styles.copy}>
-          Use your Google account to open a personalized application tracker. Your board, profile, and AI settings stay separated per account on this browser.
+          Use your Google account to open your personalized application tracker.
         </p>
 
         <div style={styles.googleBox}>
@@ -144,12 +151,6 @@ export default function LoginPage({ onSignIn }: LoginPageProps) {
               <span>Google sign-in could not be loaded. Check your client ID and network access.</span>
             </div>
           )}
-        </div>
-
-        <div style={styles.checks}>
-          <span><CheckCircle2 size={14} /> Account-specific pipeline title</span>
-          <span><CheckCircle2 size={14} /> Separate local job board data</span>
-          <span><CheckCircle2 size={14} /> Existing profile tools preserved</span>
         </div>
       </section>
     </main>
@@ -183,7 +184,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '44px',
     height: '44px',
     borderRadius: 'var(--rounded-md)',
-    backgroundColor: 'var(--color-primary)',
+    backgroundColor: 'var(--color-surface-2)',
+    border: '1px solid var(--color-hairline-strong)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -197,7 +199,6 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: 'var(--spacing-sm)',
-    marginBottom: 'var(--spacing-lg)',
   },
   googleButtonSlot: {
     minHeight: '44px',
@@ -218,12 +219,6 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid rgba(245, 166, 35, 0.2)',
     borderRadius: 'var(--rounded-md)',
     padding: '10px 12px',
-    fontSize: '13px',
-  },
-  checks: {
-    display: 'grid',
-    gap: 'var(--spacing-xs)',
-    color: 'var(--color-ink-subtle)',
     fontSize: '13px',
   },
 };
