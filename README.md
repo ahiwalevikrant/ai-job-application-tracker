@@ -1,6 +1,6 @@
 # AI Job Application Tracker
 
-A local-first job application tracker that helps manage a career pipeline, search live jobs, import job postings, upload resume context, and generate tailored application materials with Groq or OpenRouter.
+A local-first job application tracker that helps manage a career pipeline, search live jobs, import job postings, upload resume context, and generate tailored application materials with Groq or OpenRouter....
 
 
 ## Highlights
